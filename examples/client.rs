@@ -10,9 +10,10 @@
 //!
 //! You can use this example together with the `server` example.
 
-use std::env;
+use std::{env, time::Duration};
 
 use futures_util::{future, pin_mut, StreamExt};
+use std::sync::mpsc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
@@ -23,6 +24,7 @@ async fn main() {
 
     let url = url::Url::parse(&connect_addr).unwrap();
 
+    let (sender, receiver) = mpsc::channel::<String>();
     let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
     tokio::spawn(read_stdin(stdin_tx));
 
@@ -45,15 +47,25 @@ async fn main() {
 
 // Our helper method which will read data from stdin and send it along the
 // sender provided.
+// async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>, receiver: mpsc::Receiver<String>) {
 async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
+    // loop {
+    //     while let Ok(val) = receiver.recv() {
+
+    //     }
+    // }
     let mut stdin = tokio::io::stdin();
     loop {
-        let mut buf = vec![0; 1024];
-        let n = match stdin.read(&mut buf).await {
-            Err(_) | Ok(0) => break,
-            Ok(n) => n,
-        };
-        buf.truncate(n);
-        tx.unbounded_send(Message::binary(buf)).unwrap();
+        loop {
+            // let mut buf = vec![0; 1024];
+            // let n = match stdin.read(&mut buf).await {
+            //     Err(_) | Ok(0) => break,
+            //     Ok(n) => n,
+            // };
+            // buf.truncate(n);
+            // tx.unbounded_send(Message::binary(buf)).unwrap();
+            tx.unbounded_send(Message::Text("aaaa".to_owned())).unwrap();
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+        }
     }
 }
