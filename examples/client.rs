@@ -12,7 +12,6 @@
 //! You can use this example together with the `server` example.
 use std::{env, time::Duration};
 
-use future::join_all;
 use futures_util::{future, pin_mut, StreamExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
@@ -45,9 +44,12 @@ async fn main() {
     };
 
     let sender_handle = async {
+        let mut count: u32 = 0;
         loop {
-            sender.send("from sender".to_owned()).await.ok();
-            tokio::time::sleep(Duration::from_millis(500)).await
+            count += 1;
+            eprintln!("sender: {}", count);
+            sender.send(format!("from sender: {}", count)).await.ok();
+            // tokio::time::sleep(Duration::from_millis(100)).await
         }
     };
 
@@ -84,10 +86,26 @@ async fn read_stdin(
     };
     let receiver_handle = async {
         loop {
+            let mut timer = std::time::Instant::now();
+            let mut count: u32 = 0;
             while let Some(val) = receiver.recv().await {
+                count += 1;
+                eprintln!("receiver: {}", count);
+
+                let elapsed_time = timer.elapsed().as_millis();
+                dbg!(elapsed_time);
+                if elapsed_time < MINIMUM_WAIT_TIME_MS {
+                    tokio::time::sleep(Duration::from_millis(
+                        (MINIMUM_WAIT_TIME_MS - elapsed_time) as u64,
+                    ))
+                    .await;
+                }
                 tx.unbounded_send(Message::Text(val)).unwrap();
+                timer = std::time::Instant::now();
             }
         }
     };
     tokio::join!(interval_handle, receiver_handle);
 }
+
+const MINIMUM_WAIT_TIME_MS: u128 = 1000;
