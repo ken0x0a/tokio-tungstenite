@@ -1,3 +1,4 @@
+// #![cfg(feature = "tokio/sync")]
 //! A simple example of hooking up stdin/stdout to a WebSocket stream.
 //!
 //! This example will connect to a server specified in the argument list and
@@ -9,12 +10,12 @@
 //! client.
 //!
 //! You can use this example together with the `server` example.
-
 use std::{env, time::Duration};
 
+use future::join_all;
 use futures_util::{future, pin_mut, StreamExt};
-use std::sync::mpsc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
 #[tokio::main]
@@ -24,9 +25,11 @@ async fn main() {
 
     let url = url::Url::parse(&connect_addr).unwrap();
 
-    let (sender, receiver) = mpsc::channel::<String>();
+    let (sender, mut receiver) = mpsc::channel::<String>(1);
     let (stdin_tx, stdin_rx) = futures_channel::mpsc::unbounded();
-    tokio::spawn(read_stdin(stdin_tx));
+    tokio::spawn(async move {
+        read_stdin(stdin_tx, &mut receiver).await;
+    });
 
     let (ws_stream, _) = connect_async(url).await.expect("Failed to connect");
     println!("WebSocket handshake has been successfully completed");
@@ -41,21 +44,32 @@ async fn main() {
         })
     };
 
+    let sender_handle = async {
+        loop {
+            sender.send("from sender".to_owned()).await.ok();
+            tokio::time::sleep(Duration::from_millis(500)).await
+        }
+    };
+
     pin_mut!(stdin_to_ws, ws_to_stdout);
-    future::select(stdin_to_ws, ws_to_stdout).await;
+    // future::select(stdin_to_ws, ws_to_stdout).await;
+    tokio::join!(future::select(stdin_to_ws, ws_to_stdout), sender_handle);
 }
 
 // Our helper method which will read data from stdin and send it along the
 // sender provided.
-// async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>, receiver: mpsc::Receiver<String>) {
-async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
+// async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
+async fn read_stdin(
+    tx: futures_channel::mpsc::UnboundedSender<Message>,
+    receiver: &mut mpsc::Receiver<String>,
+) {
     // loop {
     //     while let Ok(val) = receiver.recv() {
 
     //     }
     // }
-    let mut stdin = tokio::io::stdin();
-    loop {
+    // let mut stdin = tokio::io::stdin();
+    let interval_handle = async {
         loop {
             // let mut buf = vec![0; 1024];
             // let n = match stdin.read(&mut buf).await {
@@ -67,5 +81,13 @@ async fn read_stdin(tx: futures_channel::mpsc::UnboundedSender<Message>) {
             tx.unbounded_send(Message::Text("aaaa".to_owned())).unwrap();
             tokio::time::sleep(Duration::from_millis(1000)).await;
         }
-    }
+    };
+    let receiver_handle = async {
+        loop {
+            while let Some(val) = receiver.recv().await {
+                tx.unbounded_send(Message::Text(val)).unwrap();
+            }
+        }
+    };
+    tokio::join!(interval_handle, receiver_handle);
 }
